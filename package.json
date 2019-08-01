@@ -61,6 +61,7 @@
     "debug": "^4.1.1",
     "epimetheus": "^1.0.92",
     "interface-connection": "~0.3.3",
+    "jsonwebtoken": "^8.5.1",
     "mafmt": "^6.0.7",
     "minimist": "^1.2.0",
     "multiaddr": "^6.0.6",

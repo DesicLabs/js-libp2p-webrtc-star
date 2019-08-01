@@ -1,0 +1,29 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webrtc-signalling-deployment
+  labels:
+    app: webrtc-signalling
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webrtc-signalling
+  template:
+    metadata:
+      labels:
+        app: webrtc-signalling
+    spec:
+      containers:
+      - name: webrtc-signalling
+        image: 366197152141.dkr.ecr.us-east-2.amazonaws.com/webrtc-signalling:${CIRCLE_SHA1}
+        ports:
+          - containerPort: 9090
+        env:
+        - name: JWT_SIGNING_KEY
+          valueFrom:
+            secretKeyRef:
+              name: privacypal-backend-secret
+              key: JWT_SIGNING_KEY
+
