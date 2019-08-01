@@ -1,0 +1,118 @@
+# Use the latest 2.1 version of CircleCI pipeline processing engine, see https://circleci.com/docs/2.0/configuration-reference/
+version: 2.1
+jobs:
+  build_backend:
+    docker:
+      - image: circleci/node:10.15.3
+    steps: # a collection of executable commands
+      - checkout
+      - restore_cache: # special step to restore the dependency cache
+          # Read about caching dependencies: https://circleci.com/docs/2.0/caching/
+          key: dependency-cache-{{ checksum "package.json" }}
+      - run:
+          name: Install npm packages
+          command: npm install
+      - save_cache: # special step to save the dependency cache
+          key: dependency-cache-{{ checksum "package.json" }}
+          paths:
+            - ./node_modules
+      - run:
+          name: compile project
+          command: npm run build
+      # - run: # run tests
+      #     name: test
+      #     command: npm run test-ci
+      # - run: # run coverage report
+      #     name: code-coverage
+      #     command: './node_modules/.bin/nyc report --reporter=text-lcov'
+      # - store_artifacts: # special step to save test results as as artifact
+      #     # Upload test summary for display in Artifacts: https://circleci.com/docs/2.0/artifacts/ 
+      #     path: test-results.xml
+      #     prefix: tests
+      # - store_artifacts: # for display in Artifacts: https://circleci.com/docs/2.0/artifacts/ 
+      #     path: coverage
+      #     prefix: coverage
+      # - store_test_results: # for display in Test Summary: https://circleci.com/docs/2.0/collect-test-data/
+      #     path: test-results.xml
+      # See https://circleci.com/docs/2.0/deployment-integrations/ for deploy examples
+  build_container:
+    docker: 
+      - image: docker:18.06.3-ce
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: |
+            apk add --no-cache --no-progress \
+              tree \
+              curl \
+              py-pip \
+              gettext
+            pip install \
+              awscli 
+      - run:
+          name: Install kubectl
+          command: |
+             curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl &&
+             chmod +x ./kubectl &&
+             mv ./kubectl /usr/local/bin/kubectl &&
+             curl -o aws-iam-authenticator https://amazon-eks.s3-us-west-2.amazonaws.com/1.12.7/2019-03-27/bin/linux/amd64/aws-iam-authenticator &&
+             chmod +x ./aws-iam-authenticator &&
+             mv ./aws-iam-authenticator /usr/local/bin/aws-iam-authenticator
+      - run:
+          name: Test kubernetes connectivity
+          command: |
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+              aws eks --region us-east-2 update-kubeconfig --name desic-prod
+              kubectl config view --minify 
+              kubectl get svc
+            fi
+      - setup_remote_docker
+      - restore_cache:
+          keys:
+            - v1-{{ .Branch }}
+          paths:
+            - /caches/app.tar
+      - run:
+          name: Load Docker image layer cache
+          command: |
+            set +o pipefail
+            docker load -i /caches/app.tar | true
+      - run:
+          name: Build application Docker image
+          command: |
+            docker build --cache-from=app -t app .
+      - run: 
+          name: Save Docker image layer cache
+          command: |
+            mkdir -p /caches
+            docker save -o /caches/app.tar app
+      - save_cache:
+          key: v1-{{ .Branch }}-{{ epoch }}
+          paths: 
+            - /caches/app.tar 
+      # - run:
+      #     name: Run tests
+      #     command: |
+      #       docker-compose -f ./docker-compose.test.yml up
+      - deploy:
+          name: Push application Docker image
+          command: |
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+              login="$(aws ecr get-login --region us-east-2 --no-include-email)"
+              ${login}
+              docker tag app "${ECR_ENDPOINT}/webrtc-signalling:${CIRCLE_SHA1}"
+              docker push "${ECR_ENDPOINT}/webrtc-signalling:${CIRCLE_SHA1}"
+              envsubst < webrtc-signalling.unpatched.yml > webrtc-signalling.patched.yml
+              kubectl apply -f webrtc-signalling.patched.yml
+            fi
+
+# Orchestrate or schedule a set of jobs, see https://circleci.com/docs/2.0/workflows/
+workflows:
+  # Name the workflow "Welcome"
+  build_and_test:
+    jobs:
+      - build_backend
+      - build_container:
+          requires:
+            - build_backend
