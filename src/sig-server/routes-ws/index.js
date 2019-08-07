@@ -47,6 +47,9 @@ module.exports = (http, hasMetrics) => {
 
   function authenticate(socket, callback) {
     const authHeader = socket.handshake.headers['Authorization'];
+    if (!authHeader) {
+      callback("No authorization header", null);
+    }
     headerParts = authHeader.split(' ').filter(p => p.length > 0);
     
     if (headerParts.length != 2) {
