@@ -1,9 +1,10 @@
 'use strict'
 
-const config = require('../config')
-const log = config.log
-const SocketIO = require('socket.io')
-const client = require('prom-client')
+const config = require('../config');
+const log = config.log;
+const SocketIO = require('socket.io');
+const client = require('prom-client');
+const jwt = require('jsonwebtoken');
 
 const fake = {
   gauge: {
@@ -44,11 +45,44 @@ module.exports = (http, hasMetrics) => {
     peer.emit(event, arg)
   }
 
+  function authenticate(socket, callback) {
+    const authHeader = socket.handshake.headers['Authorization'];
+    headerParts = authHeader.split(' ').filter(p => p.length > 0);
+    
+    if (headerParts.length != 2) {
+      callback ("Malformed auth header", null);
+      return;
+    }
+
+    const authType = headerParts[0].toLocaleLowercase();
+    if (authType !== 'bearer') {
+      callback (`Auth type ${authType} not recognized`, null);
+      return;
+    }
+
+    jwt.verify(headerParts[1], 'dsfdasfads', {
+      audience: 'privacypal',
+      issuer: 'privacypal',
+    }, function (err, decoded) {
+      if (err) {
+        callback("Error validating jwt: " + err, null);
+      } else {
+        callback(null, decoded.id);
+      }
+    });
+  }
+
   function handle (socket) {
-    socket.on('ss-join', join.bind(socket))
-    socket.on('ss-leave', leave.bind(socket))
-    socket.on('disconnect', disconnect.bind(socket)) // socket.io own event
-    socket.on('ss-handshake', forwardHandshake)
+    authenticate(socket, (err, user) => {
+      if(err) {
+        socket.disconnect();
+      } else {
+        socket.on('ss-join', join.bind(socket))
+        socket.on('ss-leave', leave.bind(socket))
+        socket.on('disconnect', disconnect.bind(socket)) // socket.io own event
+        socket.on('ss-handshake', forwardHandshake)
+      }
+    });
   }
 
   // join this signaling server network
