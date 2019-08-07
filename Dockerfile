@@ -10,4 +10,4 @@ COPY . .
 EXPOSE 9090
 #EXPOSE 3002
 
-CMD [ "npm", "star-signal" ]
+CMD [ "npm", "run", "star-signal" ]
